@@ -5,9 +5,123 @@ options {
     tokenVocab = Mvel3Lexer;
 }
 
-// Start rule for MVEL expressions
+// Start rule for MVEL expressions or statements
 start_
-    : expression EOF
+    : compilationUnit EOF
+    | expression EOF
+    ;
+
+// Compilation unit for multi-line code
+compilationUnit
+    : statement*
+    ;
+
+// Statement types
+statement
+    : block                                                     # BlockStatement
+    | IF LPAREN expression RPAREN statement (ELSE statement)?   # IfStatement
+    | WHILE LPAREN expression RPAREN statement                  # WhileStatement
+    | FOR LPAREN forControl RPAREN statement                   # ForStatement
+    | DO statement WHILE LPAREN expression RPAREN SEMICOLON    # DoWhileStatement
+    | TRY block (catchClause+ finallyBlock? | finallyBlock)     # TryStatement
+    | SWITCH LPAREN expression RPAREN LBRACE switchBlockStatementGroup* RBRACE # SwitchStatement
+    | RETURN expression? SEMICOLON                              # ReturnStatement
+    | THROW expression SEMICOLON                                # ThrowStatement
+    | YIELD expression SEMICOLON                                # YieldStmt
+    | BREAK IDENTIFIER? SEMICOLON                               # BreakStatement
+    | CONTINUE IDENTIFIER? SEMICOLON                            # ContinueStatement
+    | SEMICOLON                                                 # EmptyStatement
+    | statementExpression SEMICOLON                             # ExpressionStatement
+    | localVariableDeclarationStatement                         # LocalVarDeclStatement
+    | IDENTIFIER COLON statement                                # LabeledStatement
+    ;
+
+// Block statement
+block
+    : LBRACE statement* RBRACE
+    ;
+
+// For loop control
+forControl
+    : forInit? SEMICOLON expression? SEMICOLON forUpdate?       # BasicForControl
+    | localVariableDeclaration COLON expression                # EnhancedForControl
+    ;
+
+forInit
+    : localVariableDeclaration
+    | expressionList
+    ;
+
+forUpdate
+    : expressionList
+    ;
+
+// Variable declarations
+localVariableDeclarationStatement
+    : localVariableDeclaration SEMICOLON
+    ;
+
+localVariableDeclaration
+    : variableModifier* type variableDeclarators
+    | variableModifier* VAR variableDeclarators
+    ;
+
+variableModifier
+    : FINAL
+    ;
+
+variableDeclarators
+    : variableDeclarator (COMMA variableDeclarator)*
+    ;
+
+variableDeclarator
+    : variableDeclaratorId (ASSIGN variableInitializer)?
+    ;
+
+variableDeclaratorId
+    : IDENTIFIER (LBRACKET RBRACKET)*
+    ;
+
+// Try-catch constructs
+catchClause
+    : CATCH LPAREN variableModifier* catchType IDENTIFIER RPAREN block
+    ;
+
+catchType
+    : qualifiedName (BIT_OR qualifiedName)*
+    ;
+
+finallyBlock
+    : FINALLY block
+    ;
+
+// Switch constructs
+switchBlockStatementGroup
+    : switchLabel+ statement*
+    ;
+
+switchLabel
+    : CASE constantExpression COLON
+    | CASE enumConstantName COLON
+    | DEFAULT COLON
+    ;
+
+constantExpression
+    : expression
+    ;
+
+enumConstantName
+    : IDENTIFIER
+    ;
+
+// Statement expressions (expressions that can be statements)
+statementExpression
+    : expression
+    ;
+
+// Qualified names
+qualifiedName
+    : IDENTIFIER (DOT IDENTIFIER)*
     ;
 
 // Primary expression hierarchy
@@ -41,6 +155,10 @@ expression
     | expression SELECTION expression RPAREN                           # SelectionExpression
     | ISDEF LPAREN expression RPAREN                                   # IsDefExpression
     | expression BIT_NOT REGEX_LITERAL                                 # RegexMatchExpression
+    | expression HASH IDENTIFIER                                       # CoercionExpression
+    | expression HASH STRING_LITERAL                                   # CoercionExpression
+    | expression LBRACE withStatementList? RBRACE                      # WithBlockExpression
+    | expression LBRACKET booleanTestList? RBRACKET                    # BooleanTestBlockExpression
     ;
 
 // Primary expressions
@@ -56,6 +174,7 @@ primary
     | EMPTY                         # EmptyExpression
     | NIL                           # NilExpression
     | UNDEFINED                     # UndefinedExpression
+    | switchExpression              # SwitchExpressionPrimary
     ;
 
 // Literals
@@ -64,10 +183,12 @@ literal
     | FLOATING_POINT_LITERAL        # FloatingPointLiteral
     | CHARACTER_LITERAL             # CharacterLiteral
     | STRING_LITERAL                # StringLiteral
+    | TEXT_BLOCK                    # TextBlockLiteral
     | TRUE                          # BooleanLiteral
     | FALSE                         # BooleanLiteral
     | NULL                          # NullLiteral
     | REGEX_LITERAL                 # RegexLiteral
+    | UNIT_LITERAL                  # UnitLiteral
     ;
 
 
@@ -151,4 +272,94 @@ primitiveType
 
 classType
     : IDENTIFIER (DOT IDENTIFIER)*
+    ;
+
+// Modern Java syntax (Java 17+)
+
+// Switch expressions
+switchExpression
+    : SWITCH LPAREN expression RPAREN LBRACE switchExpressionCase* RBRACE
+    ;
+
+switchExpressionCase
+    : CASE casePattern (COMMA casePattern)* (COLON | ARROW) switchExpressionResult
+    | DEFAULT (COLON | ARROW) switchExpressionResult
+    ;
+
+casePattern
+    : expression
+    | pattern
+    ;
+
+pattern
+    : typePattern
+    | expression
+    ;
+
+typePattern
+    : type IDENTIFIER
+    ;
+
+switchExpressionResult
+    : expression SEMICOLON?
+    | block
+    | YIELD expression SEMICOLON
+    ;
+
+// Yield statement
+yieldStatement
+    : YIELD expression SEMICOLON
+    ;
+
+// Record declaration (basic support)
+recordDeclaration
+    : RECORD IDENTIFIER LPAREN recordComponentList? RPAREN recordBody?
+    ;
+
+recordComponentList
+    : recordComponent (COMMA recordComponent)*
+    ;
+
+recordComponent
+    : type IDENTIFIER
+    ;
+
+recordBody
+    : LBRACE recordBodyDeclaration* RBRACE
+    ;
+
+recordBodyDeclaration
+    : statement
+    ;
+
+// Sealed class modifiers
+sealedModifier
+    : SEALED
+    | NON_SEALED
+    ;
+
+// Pattern guards (for advanced pattern matching)
+guardedPattern
+    : pattern WHEN expression
+    ;
+
+// MVEL3-specific syntax
+
+// With-style block statement lists
+withStatementList
+    : withStatement (COMMA withStatement)*
+    ;
+
+withStatement
+    : IDENTIFIER ASSIGN expression
+    | expression
+    ;
+
+// Boolean test block lists
+booleanTestList
+    : booleanTest (COMMA booleanTest)*
+    ;
+
+booleanTest
+    : expression
     ;

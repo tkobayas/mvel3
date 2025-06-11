@@ -29,3 +29,8 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# antlr4 generated files
+gen/
+src/main/antlr4/org/mvel3/grammar/gen/
+src/main/antlr4/org/mvel3/grammar/Mvel3Lexer.tokens

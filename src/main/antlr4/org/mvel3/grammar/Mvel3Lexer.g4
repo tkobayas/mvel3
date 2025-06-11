@@ -69,6 +69,8 @@ COMMA       : ',';
 DOT         : '.';
 COLON       : ':';
 QUESTION    : '?';
+ARROW       : '->';
+HASH        : '#';
 
 // Java keywords that MVEL supports
 ABSTRACT    : 'abstract';
@@ -120,6 +122,16 @@ TRY         : 'try';
 VOID        : 'void';
 VOLATILE    : 'volatile';
 WHILE       : 'while';
+
+// Java 17+ keywords
+SEALED      : 'sealed';
+PERMITS     : 'permits';
+RECORD      : 'record';
+YIELD       : 'yield';
+VAR         : 'var';
+NON_SEALED  : 'non-sealed';
+WHEN        : 'when';
+WITH        : 'with';
 
 // Boolean literals
 TRUE        : 'true';
@@ -375,6 +387,24 @@ STRING_LITERAL
     : '"' StringCharacters? '"'
     ;
 
+// Text block literals (Java 15+)
+TEXT_BLOCK
+    : '"""' [ \t]* [\r\n] TextBlockContent? '"""'
+    ;
+
+fragment
+TextBlockContent
+    : TextBlockCharacter*
+    ;
+
+fragment
+TextBlockCharacter
+    : ~["\\]
+    | EscapeSequence
+    | '"' ~["]
+    | '""' ~["]
+    ;
+
 fragment
 StringCharacters
     : StringCharacter+
@@ -389,6 +419,11 @@ StringCharacter
 // Regular expression literals
 REGEX_LITERAL
     : '~/' (~[/\r\n] | '\\' .)+ '/'
+    ;
+
+// Unit literals (like "5pints", "10litres")
+UNIT_LITERAL
+    : [0-9]+ [a-zA-Z]+
     ;
 
 // Identifiers
