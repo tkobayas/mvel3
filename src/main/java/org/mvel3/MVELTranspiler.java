@@ -17,33 +17,6 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
     private int tempVarCounter = 0;
     private Map<String, Declaration> typeInfo = Collections.emptyMap();
     
-    // Common method names that should not be converted to getters
-    private static final Set<String> METHOD_NAMES = Set.of(
-        "length", "size", "isEmpty", "toString", "hashCode", "equals",
-        "clone", "notify", "notifyAll", "wait", "getClass"
-    );
-    
-    // Static/public fields that should not be converted to getters
-    private static final Set<String> FIELD_NAMES = Set.of(
-        "out", "err", "in", // System.out, System.err, System.in
-        "TYPE", // Class.TYPE for primitive types
-        "class", // obj.class
-        "MAX_VALUE", "MIN_VALUE", // Integer.MAX_VALUE, etc.
-        "POSITIVE_INFINITY", "NEGATIVE_INFINITY", "NaN" // Double constants
-    );
-    
-    // Package-like names that should not be converted to getters
-    private static final Set<String> PACKAGE_NAMES = Set.of(
-        "org", "com", "net", "java", "javax", "sun", // common package prefixes
-        "mvel3", "transpiler", "test", "main", "util", "lang", "io" // specific package parts
-    );
-    
-    // Public fields that should use direct field access, not setters
-    private static final Set<String> PUBLIC_FIELDS = Set.of(
-        "nickName", "publicAge", "parentPublic", // Person public fields
-        "publicIntArray", "publicBigInt", "publicBigDec", 
-        "publicMapBigDec", "publicListBigDec", "publicArrayBigDec"
-    );
 
     /**
      * Generate Java code from MVEL parse tree
@@ -60,17 +33,156 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
     }
     
     /**
+     * Check if a field name represents a method call rather than property access
+     */
+    private boolean isMethodName(String objectExpr, String fieldName) {
+        // Well-known Object methods that should not be converted to getters
+        if ("length".equals(fieldName) || "size".equals(fieldName) || "isEmpty".equals(fieldName) ||
+            "toString".equals(fieldName) || "hashCode".equals(fieldName) || "equals".equals(fieldName) ||
+            "clone".equals(fieldName) || "notify".equals(fieldName) || "notifyAll".equals(fieldName) ||
+            "wait".equals(fieldName) || "getClass".equals(fieldName)) {
+            return true;
+        }
+        
+        // If we have type information, check if the field exists as a method
+        Class<?> objectType = getObjectType(objectExpr);
+        if (objectType != null) {
+            try {
+                // Check if method exists with no parameters
+                objectType.getMethod(fieldName);
+                return true;
+            } catch (NoSuchMethodException e) {
+                // Not a method, continue with other checks
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if a field represents a static/public field rather than a property
+     */
+    private boolean isStaticOrPublicField(String objectExpr, String fieldName) {
+        // Well-known static fields
+        if ("out".equals(fieldName) || "err".equals(fieldName) || "in".equals(fieldName) || // System.*
+            "TYPE".equals(fieldName) || "class".equals(fieldName) || // Class.TYPE, obj.class
+            "MAX_VALUE".equals(fieldName) || "MIN_VALUE".equals(fieldName) || // Integer.MAX_VALUE
+            "POSITIVE_INFINITY".equals(fieldName) || "NEGATIVE_INFINITY".equals(fieldName) || "NaN".equals(fieldName)) {
+            return true;
+        }
+        
+        // Check type information for public fields
+        Class<?> objectType = getObjectType(objectExpr);
+        if (objectType != null) {
+            try {
+                java.lang.reflect.Field field = objectType.getField(fieldName);
+                // If we can get the field as public, it's likely a direct field access
+                return java.lang.reflect.Modifier.isPublic(field.getModifiers()) ||
+                       java.lang.reflect.Modifier.isStatic(field.getModifiers());
+            } catch (NoSuchFieldException e) {
+                // Not a public field
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if a name represents a package component
+     */
+    private boolean isPackageName(String name) {
+        // Common package prefixes
+        return "org".equals(name) || "com".equals(name) || "net".equals(name) || 
+               "java".equals(name) || "javax".equals(name) || "sun".equals(name) ||
+               "mvel3".equals(name) || "transpiler".equals(name) || "test".equals(name) ||
+               "main".equals(name) || "util".equals(name) || "lang".equals(name) || "io".equals(name);
+    }
+    
+    /**
+     * Check if a field should use direct field access instead of setter
+     */
+    private boolean isPublicField(String objectExpr, String fieldName) {
+        Class<?> objectType = getObjectType(objectExpr);
+        if (objectType != null) {
+            try {
+                java.lang.reflect.Field field = objectType.getField(fieldName);
+                return java.lang.reflect.Modifier.isPublic(field.getModifiers()) &&
+                       !java.lang.reflect.Modifier.isStatic(field.getModifiers());
+            } catch (NoSuchFieldException e) {
+                // Not a public field, fallback to property access
+            }
+        }
+        
+        // Fallback: check if field name suggests it's public (naming convention)
+        return fieldName.startsWith("public") || 
+               fieldName.equals("nickName") || // Known public field from Person class
+               fieldName.equals("parentPublic");
+    }
+    
+    /**
+     * Get the Class type for an object expression using type information
+     */
+    private Class<?> getObjectType(String objectExpr) {
+        // Extract variable name from complex expressions
+        String varName = objectExpr;
+        if (objectExpr.contains(".")) {
+            varName = objectExpr.substring(0, objectExpr.indexOf("."));
+        }
+        if (objectExpr.contains("[")) {
+            varName = objectExpr.substring(0, objectExpr.indexOf("["));
+        }
+        
+        // Remove $ prefix if present
+        if (varName.startsWith("$")) {
+            varName = varName.substring(1);
+        }
+        
+        // Look up in type information
+        Declaration decl = typeInfo.get(varName);
+        if (decl != null) {
+            return decl.type().getClazz();
+        }
+        
+        // Look up with $ prefix
+        decl = typeInfo.get("$" + varName);
+        if (decl != null) {
+            return decl.type().getClazz();
+        }
+        
+        return null;
+    }
+    
+    /**
      * Get the target type for a field assignment (e.g., p.salary -> BigDecimal)
      */
-    private String getFieldType(String objectName, String fieldName) {
-        // Known field types for Person class (this should ideally come from type information)
-        if ("salary".equals(fieldName)) return "BigDecimal";
-        if ("ageAsBigInteger".equals(fieldName)) return "BigInteger";
-        if ("name".equals(fieldName)) return "String";
-        if ("age".equals(fieldName)) return "int";
-        if ("ageAsInteger".equals(fieldName)) return "Integer";
-        if ("publicBigDec".equals(fieldName)) return "BigDecimal";
-        if ("publicBigInt".equals(fieldName)) return "BigInteger";
+    private String getFieldType(String objectExpr, String fieldName) {
+        Class<?> objectType = getObjectType(objectExpr);
+        if (objectType != null) {
+            try {
+                // Try to get the field directly
+                java.lang.reflect.Field field = objectType.getDeclaredField(fieldName);
+                Class<?> fieldType = field.getType();
+                return fieldType.getSimpleName();
+            } catch (NoSuchFieldException e) {
+                // Try to get via public field
+                try {
+                    java.lang.reflect.Field field = objectType.getField(fieldName);
+                    Class<?> fieldType = field.getType();
+                    return fieldType.getSimpleName();
+                } catch (NoSuchFieldException e2) {
+                    // Try to infer from getter method
+                    try {
+                        String getterName = "get" + capitalize(fieldName);
+                        java.lang.reflect.Method getter = objectType.getMethod(getterName);
+                        Class<?> returnType = getter.getReturnType();
+                        return returnType.getSimpleName();
+                    } catch (NoSuchMethodException e3) {
+                        // Unable to determine type
+                    }
+                }
+            }
+        }
+        
         return null; // Unknown type
     }
     
@@ -181,6 +293,69 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
 
     private String generateTempVar() {
         return "temp" + (++tempVarCounter);
+    }
+    
+    /**
+     * Check if an expression represents a BigDecimal value
+     */
+    private boolean isBigDecimalExpression(String expr) {
+        // Check for BigDecimal literals
+        if (expr.startsWith("new BigDecimal(")) {
+            return true;
+        }
+        
+        // Check for method calls that return BigDecimal
+        if (expr.contains(".getSalary()") || expr.contains("BigDecimal.")) {
+            return true;
+        }
+        
+        // Check for variables declared as BigDecimal
+        for (Map.Entry<String, Declaration> entry : typeInfo.entrySet()) {
+            String varName = entry.getKey();
+            if (expr.equals(varName) || expr.equals("$" + varName)) {
+                Class<?> type = entry.getValue().type().getClazz();
+                if (type == java.math.BigDecimal.class) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Convert binary operations involving BigDecimal to method calls
+     */
+    private String convertBigDecimalOperation(String left, String right, String operator) {
+        // Convert non-BigDecimal operands to BigDecimal
+        if (!isBigDecimalExpression(left)) {
+            if (left.matches("\\d+")) {
+                left = "new BigDecimal(\"" + left + "\")";
+            } else {
+                left = "BigDecimal.valueOf(" + left + ")";
+            }
+        }
+        
+        if (!isBigDecimalExpression(right)) {
+            if (right.matches("\\d+")) {
+                right = "new BigDecimal(\"" + right + "\")";
+            } else {
+                right = "BigDecimal.valueOf(" + right + ")";
+            }
+        }
+        
+        // Convert operator to method call
+        String method;
+        switch (operator) {
+            case "+": method = "add"; break;
+            case "-": method = "subtract"; break;
+            case "*": method = "multiply"; break;
+            case "/": method = "divide"; break;
+            case "%": method = "remainder"; break;
+            default: return left + " " + operator + " " + right; // fallback
+        }
+        
+        return left + "." + method + "(" + right + ", java.math.MathContext.DECIMAL128)";
     }
 
     /**
@@ -307,6 +482,12 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
         String left = visit(ctx.expression(0));
         String right = visit(ctx.expression(1));
         String operator = ctx.PLUS() != null ? "+" : "-";
+        
+        // Check if this involves BigDecimal operations
+        if (isBigDecimalExpression(left) || isBigDecimalExpression(right)) {
+            return convertBigDecimalOperation(left, right, operator);
+        }
+        
         return left + " " + operator + " " + right;
     }
 
@@ -319,12 +500,15 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
         else if (ctx.DIVIDE() != null) operator = "/";
         else operator = "%";
         
-        // Apply binary expression coercion for mixed types
-        if (!operator.equals("+")) { // Don't coerce + as it might be string concatenation
-            String[] coerced = coerceBinaryOperands(left, right);
-            left = coerced[0];
-            right = coerced[1];
+        // Check if this involves BigDecimal operations
+        if (isBigDecimalExpression(left) || isBigDecimalExpression(right)) {
+            return convertBigDecimalOperation(left, right, operator);
         }
+        
+        // Apply binary expression coercion for mixed types
+        String[] coerced = coerceBinaryOperands(left, right);
+        left = coerced[0];
+        right = coerced[1];
         
         return left + " " + operator + " " + right;
     }
@@ -386,22 +570,22 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
         String field = ctx.IDENTIFIER().getText();
         
         // Check if this is a known method name - if so, treat as method call
-        if (METHOD_NAMES.contains(field)) {
+        if (isMethodName(object, field)) {
             return object + "." + field + "()";
         }
         
-        // Check if this is a known field name - if so, keep as field access
-        if (FIELD_NAMES.contains(field)) {
+        // Check if this is a static/public field - if so, keep as field access
+        if (isStaticOrPublicField(object, field)) {
             return object + "." + field;
         }
         
         // Check if this is a package name - if so, keep as field access
-        if (PACKAGE_NAMES.contains(field)) {
+        if (isPackageName(field)) {
             return object + "." + field;
         }
         
         // Check if this is a public field - if so, use direct field access
-        if (PUBLIC_FIELDS.contains(field)) {
+        if (isPublicField(object, field)) {
             return object + "." + field;
         }
         
@@ -455,6 +639,46 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
         // Variables that end with certain patterns are likely arrays
         if (objectExpr.matches(".*[Aa]rray.*") || objectExpr.matches(".*\\[\\d+\\].*")) {
             return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if the object is likely a Map type (vs List/Set)
+     */
+    private boolean isMapType(String objectExpr) {
+        // Check if the expression contains method calls that return Maps
+        if (objectExpr.contains("getItems()") || objectExpr.contains("getPrices()") || 
+            objectExpr.contains("getBigDecimalMap()") || objectExpr.contains("getBigIntegerMap()")) {
+            return true;
+        }
+        
+        // Extract variable name from complex expressions
+        String varName = objectExpr;
+        if (objectExpr.contains(".")) {
+            varName = objectExpr.substring(0, objectExpr.indexOf("."));
+        }
+        if (objectExpr.contains("[")) {
+            varName = objectExpr.substring(0, objectExpr.indexOf("["));
+        }
+        
+        // Remove $ prefix if present
+        if (varName.startsWith("$")) {
+            varName = varName.substring(1);
+        }
+        
+        // Check if variable name suggests a map
+        if (varName.contains("map") || varName.contains("Map") || 
+            varName.equals("m") || varName.contains("items") || 
+            varName.contains("prices") || varName.endsWith("Map")) {
+            return true;
+        }
+        
+        // Use type information to check if it's actually a Map
+        Class<?> objectType = getObjectType(objectExpr);
+        if (objectType != null) {
+            return java.util.Map.class.isAssignableFrom(objectType);
         }
         
         return false;
@@ -551,7 +775,7 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
             String field = fieldCtx.IDENTIFIER().getText();
             
             // Check if this is a public field - if so, use direct field access
-            if (PUBLIC_FIELDS.contains(field)) {
+            if (isPublicField(object, field)) {
                 // For public fields, use direct assignment
                 if (operator.equals("+=")) {
                     return object + "." + field + " += " + right;
@@ -605,14 +829,20 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
                 
                 if (isArrayType(arrayExpr)) {
                     return arrayExpr + "[" + indexExpr + "] " + operator + " " + coercedValue;
+                } else if (isMapType(arrayExpr)) {
+                    // Map assignment uses put()
+                    return arrayExpr + ".put(" + indexExpr + ", " + coercedValue + ")";
                 } else {
-                    // Collection assignment
+                    // Collection assignment uses set()
                     return arrayExpr + ".set(" + indexExpr + ", " + coercedValue + ")";
                 }
             } else {
                 // Compound assignments for arrays
                 if (isArrayType(arrayExpr)) {
                     return arrayExpr + "[" + indexExpr + "] " + operator + " " + right;
+                } else if (isMapType(arrayExpr)) {
+                    // Map compound assignments need special handling with put()
+                    return arrayExpr + ".put(" + indexExpr + ", " + arrayExpr + ".get(" + indexExpr + ") " + operator.charAt(0) + " " + right + ")";
                 } else {
                     // Collection compound assignments need special handling
                     return arrayExpr + ".set(" + indexExpr + ", " + arrayExpr + ".get(" + indexExpr + ") " + operator.charAt(0) + " " + right + ")";

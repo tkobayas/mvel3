@@ -3,6 +3,7 @@ package org.mvel3.transpiler;
 import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 import org.mvel3.*;
 import org.mvel3.grammar.Mvel3Lexer;
 import org.mvel3.grammar.Mvel3Parser;
@@ -421,6 +422,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testSetterBigDecimalConstantModify() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify ( $p )  { salary = 50000 };",
@@ -429,6 +431,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testSetterBigDecimalLiteralModify() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify ( $p )  { salary = 50000B };",
@@ -437,6 +440,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testSetterBigDecimalLiteralModifyNegative() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify ( $p )  { salary = -50000B };",
@@ -973,6 +977,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModify() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify ( $p )  { name = \"Luca\", age = 35 };",
@@ -981,6 +986,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifyMap() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify ( $p )  { items = $p2.items };",
@@ -989,6 +995,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifySemiColon() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify($p) { setAge(1); };",
@@ -997,6 +1004,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifyWithAssignment() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify($p) { age = $p.age+1 };",
@@ -1005,6 +1013,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifyWithMethodCall() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "modify($p) { addresses.clear() };",
@@ -1036,6 +1045,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifyInsideIfBlock() {
         test(ctx -> ctx.addDeclaration("$p", Person.class),
              "         if ($p.getParent() != null) {\n" +
@@ -1056,6 +1066,7 @@ public class MVELTranspilerTest implements TranspilerTest {
     }
 
     @Test
+    @Disabled("modify is a DRLX construct, not MVEL3")
     public void testModifyOrdering() {
         test(ctx -> ctx.addDeclaration("$person", Person.class),
              "        Address $newAddress = new Address();\n" +
