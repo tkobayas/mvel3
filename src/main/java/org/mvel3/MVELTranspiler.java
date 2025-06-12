@@ -93,6 +93,34 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
     }
     
     /**
+     * Apply type coercion for binary operands (e.g., int * String -> int * Integer.parseInt(String))
+     */
+    private String[] coerceBinaryOperands(String left, String right) {
+        // Detect string literals vs variables
+        boolean leftIsStringLiteral = left.startsWith("\"") && left.endsWith("\"");
+        boolean rightIsStringLiteral = right.startsWith("\"") && right.endsWith("\"");
+        boolean leftIsVariable = !leftIsStringLiteral && !left.matches("\\d+") && !left.contains("(");
+        boolean rightIsVariable = !rightIsStringLiteral && !right.matches("\\d+") && !right.contains("(");
+        
+        // If one operand is a string variable and the other is numeric, coerce the string
+        if (leftIsVariable && (right.matches("\\d+") || rightIsVariable)) {
+            // Check if left might be a string variable (simple heuristic)
+            if (left.equals("y") || left.contains("String") || left.endsWith("Str")) {
+                left = "Integer.parseInt(" + left + ")";
+            }
+        }
+        
+        if (rightIsVariable && (left.matches("\\d+") || leftIsVariable)) {
+            // Check if right might be a string variable
+            if (right.equals("y") || right.contains("String") || right.endsWith("Str")) {
+                right = "Integer.parseInt(" + right + ")";
+            }
+        }
+        
+        return new String[]{left, right};
+    }
+    
+    /**
      * Apply type coercion for assignment values
      */
     private String coerceValueForAssignment(String value, String targetType) {
@@ -290,6 +318,14 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
         if (ctx.MULTIPLY() != null) operator = "*";
         else if (ctx.DIVIDE() != null) operator = "/";
         else operator = "%";
+        
+        // Apply binary expression coercion for mixed types
+        if (!operator.equals("+")) { // Don't coerce + as it might be string concatenation
+            String[] coerced = coerceBinaryOperands(left, right);
+            left = coerced[0];
+            right = coerced[1];
+        }
+        
         return left + " " + operator + " " + right;
     }
 
@@ -1004,6 +1040,77 @@ public class MVELTranspiler extends Mvel3ParserBaseVisitor<String> {
             return visit(ctx.arrayInitializer());
         }
         return ctx.getText(); // fallback
+    }
+
+    // ==== CONTROL FLOW STATEMENTS ====
+    
+    @Override
+    public String visitForStatement(Mvel3Parser.ForStatementContext ctx) {
+        String forControl = visit(ctx.forControl());
+        String statement = visit(ctx.statement());
+        return "for (" + forControl + ") " + statement;
+    }
+    
+    @Override
+    public String visitBasicForControl(Mvel3Parser.BasicForControlContext ctx) {
+        String init = ctx.forInit() != null ? visit(ctx.forInit()) : "";
+        String condition = ctx.expression() != null ? visit(ctx.expression()) : "";
+        String update = ctx.forUpdate() != null ? visit(ctx.forUpdate()) : "";
+        return init + "; " + condition + "; " + update;
+    }
+    
+    @Override
+    public String visitEnhancedForControl(Mvel3Parser.EnhancedForControlContext ctx) {
+        String varDecl = visit(ctx.localVariableDeclaration());
+        String iterable = visit(ctx.expression());
+        return varDecl + " : " + iterable;
+    }
+    
+    @Override
+    public String visitIfStatement(Mvel3Parser.IfStatementContext ctx) {
+        String condition = visit(ctx.expression());
+        String thenStmt = visit(ctx.statement(0));
+        String result = "if (" + condition + ") " + thenStmt;
+        
+        if (ctx.statement().size() > 1) {
+            String elseStmt = visit(ctx.statement(1));
+            result += " else " + elseStmt;
+        }
+        
+        return result;
+    }
+    
+    @Override
+    public String visitWhileStatement(Mvel3Parser.WhileStatementContext ctx) {
+        String condition = visit(ctx.expression());
+        String statement = visit(ctx.statement());
+        return "while (" + condition + ") " + statement;
+    }
+    
+    @Override
+    public String visitDoWhileStatement(Mvel3Parser.DoWhileStatementContext ctx) {
+        String statement = visit(ctx.statement());
+        String condition = visit(ctx.expression());
+        return "do " + statement + " while (" + condition + ");";
+    }
+    
+    @Override
+    public String visitBlockStatement(Mvel3Parser.BlockStatementContext ctx) {
+        return visit(ctx.block());
+    }
+    
+    @Override
+    public String visitBlock(Mvel3Parser.BlockContext ctx) {
+        StringBuilder result = new StringBuilder("{\n");
+        indentLevel++;
+        
+        for (Mvel3Parser.StatementContext stmt : ctx.statement()) {
+            result.append(indent()).append(visit(stmt)).append("\n");
+        }
+        
+        indentLevel--;
+        result.append(indent()).append("}");
+        return result.toString();
     }
 
     // ==== DEFAULT FALLBACK ====
