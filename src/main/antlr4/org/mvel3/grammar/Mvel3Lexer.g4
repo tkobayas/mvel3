@@ -68,6 +68,7 @@ SEMICOLON   : ';';
 COMMA       : ',';
 DOT         : '.';
 COLON       : ':';
+DOUBLE_COLON: '::';
 QUESTION    : '?';
 ARROW       : '->';
 HASH        : '#';

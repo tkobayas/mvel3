@@ -140,7 +140,7 @@ expression
     | expression (MULTIPLY | DIVIDE | MODULO) expression               # MultiplicativeExpression
     | expression (PLUS | MINUS) expression                             # AdditiveExpression
     | expression (LT | GT | LE | GE) expression                        # RelationalExpression
-    | expression (INSTANCEOF | IS) type                                # InstanceofExpression
+    | expression (INSTANCEOF | IS) type IDENTIFIER?                    # InstanceofExpression
     | expression (EQ | NE) expression                                  # EqualityExpression
     | expression (STRSIM | SOUNDSLIKE) expression                      # StringSimilarityExpression
     | expression (CONTAINS | IN) expression                            # CollectionExpression
@@ -159,6 +159,12 @@ expression
     | expression HASH STRING_LITERAL                                   # CoercionExpression
     | expression LBRACE withStatementList? RBRACE                      # WithBlockExpression
     | expression LBRACKET booleanTestList? RBRACKET                    # BooleanTestBlockExpression
+    | expression DOUBLE_COLON IDENTIFIER                               # MethodReferenceExpression
+    | expression DOUBLE_COLON NEW                                      # ConstructorReferenceExpression
+    | expressionName DOUBLE_COLON IDENTIFIER                           # ExpressionMethodReference
+    | referenceType DOUBLE_COLON IDENTIFIER                            # TypeMethodReference
+    | SUPER DOUBLE_COLON IDENTIFIER                                    # SuperMethodReference
+    | classType DOUBLE_COLON NEW                                       # ConstructorReference
     ;
 
 // Primary expressions
@@ -175,6 +181,7 @@ primary
     | NIL                           # NilExpression
     | UNDEFINED                     # UndefinedExpression
     | switchExpression              # SwitchExpressionPrimary
+    | lambdaExpression              # LambdaExpressionPrimary
     ;
 
 // Literals
@@ -231,7 +238,7 @@ creator
     ;
 
 createdName
-    : IDENTIFIER (DOT IDENTIFIER)*
+    : IDENTIFIER (DOT IDENTIFIER)* typeArguments?
     | primitiveType
     ;
 
@@ -253,10 +260,10 @@ variableInitializer
     | expression
     ;
 
-// Types
+// Types with generic support
 type
     : primitiveType (LBRACKET RBRACKET)*
-    | classType (LBRACKET RBRACKET)*
+    | referenceType (LBRACKET RBRACKET)*
     ;
 
 primitiveType
@@ -270,8 +277,57 @@ primitiveType
     | DOUBLE
     ;
 
+referenceType
+    : classType typeArguments?
+    | typeVariable
+    ;
+
 classType
     : IDENTIFIER (DOT IDENTIFIER)*
+    ;
+
+typeVariable
+    : IDENTIFIER
+    ;
+
+// Generic type support
+typeArguments
+    : LT typeArgumentList? GT
+    ;
+
+typeArgumentList
+    : typeArgument (COMMA typeArgument)*
+    ;
+
+typeArgument
+    : referenceType
+    | wildcard
+    ;
+
+wildcard
+    : QUESTION wildcardBounds?
+    ;
+
+wildcardBounds
+    : EXTENDS referenceType
+    | SUPER referenceType
+    ;
+
+// Type parameters for declarations
+typeParameters
+    : LT typeParameterList GT
+    ;
+
+typeParameterList
+    : typeParameter (COMMA typeParameter)*
+    ;
+
+typeParameter
+    : IDENTIFIER typeBound?
+    ;
+
+typeBound
+    : EXTENDS (referenceType | classType) (BIT_AND (referenceType | classType))*
     ;
 
 // Modern Java syntax (Java 17+)
@@ -282,8 +338,10 @@ switchExpression
     ;
 
 switchExpressionCase
-    : CASE casePattern (COMMA casePattern)* (COLON | ARROW) switchExpressionResult
-    | DEFAULT (COLON | ARROW) switchExpressionResult
+    : CASE casePattern (COMMA casePattern)* COLON switchBlockStatements       # ColonSwitchExpressionCase
+    | CASE casePattern (COMMA casePattern)* ARROW switchExpressionResult      # ArrowSwitchExpressionCase
+    | DEFAULT COLON switchBlockStatements                                     # DefaultColonSwitchExpressionCase
+    | DEFAULT ARROW switchExpressionResult                                    # DefaultArrowSwitchExpressionCase
     ;
 
 casePattern
@@ -301,9 +359,14 @@ typePattern
     ;
 
 switchExpressionResult
-    : expression SEMICOLON?
-    | block
-    | YIELD expression SEMICOLON
+    : expression SEMICOLON?                                                   # ExpressionSwitchResult
+    | block                                                                   # BlockSwitchResult
+    | YIELD expression SEMICOLON                                              # YieldSwitchResult
+    | THROW expression SEMICOLON                                              # ThrowSwitchResult
+    ;
+
+switchBlockStatements
+    : statement*
     ;
 
 // Yield statement
@@ -344,6 +407,37 @@ guardedPattern
     ;
 
 // MVEL3-specific syntax
+
+// Lambda expressions
+lambdaExpression
+    : lambdaParameters ARROW lambdaBody
+    ;
+
+lambdaParameters
+    : IDENTIFIER                                                    # SingleParameterLambda
+    | LPAREN RPAREN                                                 # NoParameterLambda
+    | LPAREN lambdaParameterList RPAREN                             # MultiParameterLambda
+    ;
+
+lambdaParameterList
+    : lambdaParameter (COMMA lambdaParameter)*
+    ;
+
+lambdaParameter
+    : type? IDENTIFIER
+    | VAR IDENTIFIER
+    ;
+
+lambdaBody
+    : expression                                                    # ExpressionLambdaBody
+    | block                                                         # BlockLambdaBody
+    ;
+
+// Method references are now handled in the expression rules above
+
+expressionName
+    : IDENTIFIER (DOT IDENTIFIER)*
+    ;
 
 // With-style block statement lists
 withStatementList
